@@ -13,6 +13,7 @@ from config import (
     REDDIT_SUBREDDITS
 )
 from sentiment import get_sentiment_score
+from credibility_filter import score_account, detect_coordination
 
 log = logging.getLogger("reddit")
 
@@ -54,12 +55,23 @@ class RedditMonitor:
                 
                 if cas:
                     score = get_sentiment_score(text)
+
+                    # Credibility filter — ignore low-trust accounts
+                    author = str(submission.author) if submission.author else ""
+                    account = score_account(author) if author else {"score": 50, "is_trusted": True}
+                    if not account["is_trusted"]:
+                        log.info(f"CREDIBILITY: Skipping low-trust account {author} (score={account['score']})")
+                        continue
+
+                    # Weight sentiment by account credibility
+                    trust_weight = account["score"] / 100.0
+                    weighted_score = round(score * trust_weight, 4)
+
                     for ca in set(cas):
-                        log.info(f"Reddit Signal: {ca} | Sentiment: {score:.2f} | Sub: r/{submission.subreddit}")
-                        # Fire signal if sentiment is not negative
-                        if score >= 0:
+                        log.info(f"Reddit Signal: {ca} | Sentiment: {weighted_score:.2f} (raw={score:.2f}, trust={account['score']}) | Sub: r/{submission.subreddit}")
+                        if weighted_score >= 0:
                             asyncio.run_coroutine_threadsafe(
-                                on_signal(ca, score, f"reddit (r/{submission.subreddit})"),
+                                on_signal(ca, weighted_score, f"reddit (r/{submission.subreddit})"),
                                 asyncio.get_event_loop()
                             )
         except Exception as e:

@@ -14,6 +14,9 @@ from config import (
 )
 from sentiment import get_sentiment_score
 import adaptation
+from news_guard import check_token as news_check_token, check_general_market
+from manipulation_detector import check_manipulation, is_pump_and_dump, record_mention
+from model_validator import should_validate, validate_and_fix
 
 log = logging.getLogger("scanner")
 
@@ -241,6 +244,38 @@ def score_token(pool_data: dict) -> dict:
         flags.append(f"Social: Bullish")
     elif social_score < -0.2:
         score -= 10
+    # Feed mention into manipulation velocity tracker
+    if social_score != 0:
+        record_mention(token_mint, social_score)
+
+    # 5b. Manipulation & Pump Detection
+    pump, pump_reason = is_pump_and_dump(pool_data)
+    if pump:
+        warnings.append(f"MANIPULATION: {pump_reason}")
+        return {
+            "score": 0,
+            "will_trade": False,
+            "min_required": MIN_SCORE_TO_BUY,
+            "flags": flags,
+            "warnings": warnings,
+            "pool_data": pool_data,
+            "captured_state": captured_state
+        }
+
+    manip_safe, manip_reason = check_manipulation(
+        pool_data.get("token_mint", ""), pool_data, captured_state, social_score
+    )
+    if not manip_safe:
+        warnings.append(f"MANIPULATION: {manip_reason}")
+        return {
+            "score": 0,
+            "will_trade": False,
+            "min_required": MIN_SCORE_TO_BUY,
+            "flags": flags,
+            "warnings": warnings,
+            "pool_data": pool_data,
+            "captured_state": captured_state
+        }
 
     # 6. MAHORAGA ADAPTATION (Dynamic Adjustments)
     adaptation_penalty = adaptation.get_dynamic_score_adjustment(pool_data, captured_state)
@@ -296,6 +331,18 @@ async def run_scanner(on_buy_signal: Callable, notify: Callable):
 
     while scanner_running:
         try:
+            # Periodically validate model to prevent overfitting
+            if should_validate():
+                validate_and_fix()
+
+            # Check general market news before scanning
+            market_safe, market_reason = check_general_market()
+            if not market_safe:
+                log.warning(f"NEWS GUARD: Market-wide risk — {market_reason}. Pausing scan.")
+                await notify(f"⚠️ NEWS GUARD: {market_reason}\nScanning paused 30min.")
+                await asyncio.sleep(1800)
+                continue
+
             pools = fetch_new_solana_pools() + fetch_trending_solana_pools()
             seen = set()
             unique_pools = []
@@ -318,6 +365,12 @@ async def run_scanner(on_buy_signal: Callable, notify: Callable):
                 result = score_token(pool)
                 
                 if result["will_trade"]:
+                    # Final news guard check on this specific token
+                    token_name = pool.get("name", "")
+                    news_safe, news_reason = news_check_token(pool["token_mint"], token_name)
+                    if not news_safe:
+                        await notify(f"🛑 NEWS GUARD blocked {token_name}\n{news_reason}")
+                        continue
                     alert = format_alert(result, action="buy")
                     await notify(alert)
                     await on_buy_signal(pool["token_mint"], pool, result["captured_state"])

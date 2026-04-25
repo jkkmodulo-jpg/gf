@@ -12,6 +12,8 @@ import tracker
 import scanner as sc
 import adaptation
 from reddit_monitor import RedditMonitor
+from subscription import register_user, subscribe as sub_subscribe, get_user_status_message, get_stats as sub_stats
+from model_validator import get_health_report
 from config import (
     TELEGRAM_API_ID,
     TELEGRAM_API_HASH,
@@ -169,9 +171,45 @@ async def on_command(event):
     elif cmd == "/status":
         stats = tracker.get_pnl_summary()
         adapt = adaptation.load_adaptation()
+        health = get_health_report()
         msg = (f"📊 Status:\nTrades: {stats['total_closed']}\nWin Rate: {stats['win_rate']}%\n"
                f"Total PnL: {stats['total_pnl_sol']} SOL\n"
-               f"Mahoraga Defense: +{adapt['market_defense_level']}")
+               f"Mahoraga Defense: +{adapt['market_defense_level']}\n"
+               f"Model Win Rate (30d): {health['win_rate_30d']}\n"
+               f"Overfit Resets: {health['total_resets']}")
+        await event.reply(msg)
+
+    elif cmd == "/start":
+        user = register_user(YOUR_TELEGRAM_ID)
+        await event.reply(
+            "☸️ Welcome to Mahoraga Bot!\n"
+            "Your 3-day free trial is active — full access.\n\n"
+            "Commands:\n"
+            "/scan on — Start bot\n"
+            "/scan off — Stop bot\n"
+            "/status — PnL & health\n"
+            "/mystatus — Subscription info\n"
+            "/subscribe basic|pro|elite — Upgrade\n"
+        )
+
+    elif cmd == "/mystatus":
+        msg = get_user_status_message(YOUR_TELEGRAM_ID)
+        await event.reply(msg)
+
+    elif cmd == "/subscribe" and len(parts) > 1:
+        tier = parts[1].lower()
+        success, msg = sub_subscribe(YOUR_TELEGRAM_ID, tier)
+        await event.reply(msg)
+
+    elif cmd == "/admin":
+        stats = sub_stats()
+        msg = (f"👑 Admin Stats\n"
+               f"━━━━━━━━━━━━━━━━━━━━\n"
+               f"Total Users: {stats['total_users']}\n"
+               f"Active: {stats['active_users']}\n"
+               f"On Trial: {stats['on_trial']}\n"
+               f"Basic: {stats['basic']} | Pro: {stats['pro']} | Elite: {stats['elite']}\n"
+               f"MRR: ${stats['mrr_usd']}/mo")
         await event.reply(msg)
 
 async def main():
