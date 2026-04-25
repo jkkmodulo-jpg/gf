@@ -1,0 +1,9 @@
+telethon==1.36.0
+solders==0.21.0
+solana==0.34.0
+requests==2.32.3
+python-dotenv==1.0.1
+base58==2.1.1
+praw==7.8.1
+vaderSentiment==3.3.2
+feedparser==6.0.11
