@@ -6,6 +6,7 @@ import asyncio
 import re
 import logging
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 
 import trader
 import tracker
@@ -18,6 +19,7 @@ from config import (
     TELEGRAM_API_ID,
     TELEGRAM_API_HASH,
     YOUR_TELEGRAM_ID,
+    TELEGRAM_SESSION_STRING,
     CHANNELS,
     TRADE_AMOUNT_SOL,
     AUTO_SELL_MULTIPLIER,
@@ -60,7 +62,15 @@ reddit_task: asyncio.Task = None
 reddit_monitor = RedditMonitor()
 
 # ── TELEGRAM CLIENT ───────────────────────────────────────────────────────────
-client = TelegramClient("callbot_session", TELEGRAM_API_ID, TELEGRAM_API_HASH)
+# On Railway (no TTY) we must use a pre-generated StringSession so Telethon
+# never prompts for phone/OTP.  Generate it once locally with generate_session.py,
+# then paste the output as the TELEGRAM_SESSION_STRING environment variable.
+if not TELEGRAM_SESSION_STRING:
+    raise RuntimeError(
+        "TELEGRAM_SESSION_STRING is not set.  "
+        "Run generate_session.py locally to create it, then add it as an env var."
+    )
+client = TelegramClient(StringSession(TELEGRAM_SESSION_STRING), TELEGRAM_API_ID, TELEGRAM_API_HASH)
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def short(ca: str) -> str:

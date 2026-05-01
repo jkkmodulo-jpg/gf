@@ -8,9 +8,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── TELEGRAM ──────────────────────────────────────────────────────────────────
-TELEGRAM_API_ID   = int(os.getenv("TELEGRAM_API_ID", "0"))
-TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "")
-YOUR_TELEGRAM_ID  = int(os.getenv("YOUR_TELEGRAM_ID", "0"))
+TELEGRAM_API_ID      = int(os.getenv("TELEGRAM_API_ID", "0"))
+TELEGRAM_API_HASH    = os.getenv("TELEGRAM_API_HASH", "")
+YOUR_TELEGRAM_ID     = int(os.getenv("YOUR_TELEGRAM_ID", "0"))
+TELEGRAM_SESSION_STRING = os.getenv("TELEGRAM_SESSION_STRING", "")  # StringSession for Railway
 
 def _parse_channel(c: str):
     try:
