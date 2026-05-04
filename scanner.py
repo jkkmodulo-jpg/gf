@@ -21,13 +21,13 @@ from model_validator import should_validate, validate_and_fix
 log = logging.getLogger("scanner")
 
 # ── THRESHOLDS ────────────────────────────────────────────────────────────────
-MIN_SCORE_TO_BUY      = 70       # Base score required
-MIN_LIQUIDITY_USD     = 5_000    
-MIN_TOKEN_AGE_MIN     = 2        
+MIN_SCORE_TO_BUY      = 55       # Base score required
+MIN_LIQUIDITY_USD     = 3_000    
+MIN_TOKEN_AGE_MIN     = 1        
 MAX_TOKEN_AGE_MIN     = 120      
 MAX_ALREADY_PUMPED    = 300      
-SCAN_INTERVAL_SEC     = 45       
-MOMENTUM_VOL_THRESHOLD = 1.5     
+SCAN_INTERVAL_SEC     = 30       
+MOMENTUM_VOL_THRESHOLD = 1.2     
 
 # ── SESSION STATE ─────────────────────────────────────────────────────────────
 analyzed_tokens: set[str] = set()   
@@ -75,6 +75,44 @@ def fetch_trending_solana_pools() -> list[dict]:
     except Exception as e:
         log.error(f"GeckoTerminal trending fetch failed: {e}")
         return []
+
+def fetch_dexscreener_new_pairs() -> list[dict]:
+    """Fetch latest Solana pairs from Dexscreener — catches Pump.fun launches."""
+    try:
+        resp = requests.get(
+            "https://api.dexscreener.com/token-profiles/latest/v1",
+            headers={"Accept": "application/json"},
+            timeout=15
+        )
+        resp.raise_for_status()
+        raw = resp.json() if isinstance(resp.json(), list) else resp.json().get("data", [])
+        # Normalize to GeckoTerminal-like structure for parse_pool_dexscreener
+        solana_pairs = [p for p in raw if p.get("chainId", "") == "solana"]
+        return solana_pairs
+    except Exception as e:
+        log.error(f"Dexscreener fetch failed: {e}")
+        return []
+
+def parse_pool_dexscreener(pair: dict) -> dict | None:
+    """Normalize a Dexscreener pair into the same format as parse_pool."""
+    try:
+        token_address = pair.get("tokenAddress", "")
+        if not token_address:
+            return None
+        return {
+            "token_mint":      token_address,
+            "pool_address":    token_address,
+            "name":            pair.get("description", "Unknown")[:30],
+            "price_usd":       0.0,
+            "liquidity_usd":   0.0,
+            "volume_1h":       0.0,
+            "price_change_1h": 0.0,
+            "age_minutes":     5.0,  # Dexscreener latest = fresh
+            "dex_url":         pair.get("url", f"https://dexscreener.com/solana/{token_address}"),
+        }
+    except Exception as e:
+        log.error(f"Dexscreener parse error: {e}")
+        return None
 
 def parse_pool(pool: dict) -> Optional[dict]:
     try:
@@ -229,11 +267,12 @@ def score_token(pool_data: dict) -> dict:
         score += 5
         flags.append(f"Momentum: Healthy")
 
-    # 4. Liquidity & LP Safety
+    # 4. Liquidity check
     if liq >= MIN_LIQUIDITY_USD:
         score += WEIGHTS["vol_liq_ok"]
-    
-    if pool_data.get("age_minutes", 0) > 10:
+
+    # LP burned: only give points if token is older than 20 min (more reliable signal)
+    if pool_data.get("age_minutes", 0) > 20:
         score += WEIGHTS["lp_burned"]
         flags.append("LP: Likely Locked")
 
@@ -339,33 +378,37 @@ async def run_scanner(on_buy_signal: Callable, notify: Callable):
             market_safe, market_reason = check_general_market()
             if not market_safe:
                 log.warning(f"NEWS GUARD: Market-wide risk — {market_reason}. Pausing scan.")
-                await notify(f"⚠️ NEWS GUARD: {market_reason}\nScanning paused 30min.")
-                await asyncio.sleep(1800)
+                await notify(f"⚠️ NEWS GUARD: {market_reason}\nScanning paused 5min.")
+                await asyncio.sleep(300)
                 continue
 
-            pools = fetch_new_solana_pools() + fetch_trending_solana_pools()
+            gecko_pools = fetch_new_solana_pools() + fetch_trending_solana_pools()
             seen = set()
             unique_pools = []
-            for p in pools:
+            for p in gecko_pools:
                 addr = p.get("attributes", {}).get("address", "")
                 if addr and addr not in seen:
                     seen.add(addr)
                     unique_pools.append(p)
 
+            # Add Dexscreener pairs (normalized separately)
+            dex_pairs = fetch_dexscreener_new_pairs()
+            dex_pools = []
+            for pair in dex_pairs:
+                parsed = parse_pool_dexscreener(pair)
+                if parsed and parsed["token_mint"] not in seen and parsed["token_mint"] not in analyzed_tokens:
+                    seen.add(parsed["token_mint"])
+                    dex_pools.append(parsed)
+
             for raw_pool in unique_pools:
                 pool = parse_pool(raw_pool)
                 if not pool or pool["token_mint"] in analyzed_tokens:
                     continue
-                
                 analyzed_tokens.add(pool["token_mint"])
-                
                 if pool["liquidity_usd"] < MIN_LIQUIDITY_USD or pool["age_minutes"] > MAX_TOKEN_AGE_MIN:
                     continue
-
                 result = score_token(pool)
-                
                 if result["will_trade"]:
-                    # Final news guard check on this specific token
                     token_name = pool.get("name", "")
                     news_safe, news_reason = news_check_token(pool["token_mint"], token_name)
                     if not news_safe:
@@ -375,11 +418,28 @@ async def run_scanner(on_buy_signal: Callable, notify: Callable):
                     await notify(alert)
                     await on_buy_signal(pool["token_mint"], pool, result["captured_state"])
                 else:
-                    # Only alert for high-ish scores to avoid spam
-                    if result["score"] > 50:
+                    if result["score"] > 40:
                         alert = format_alert(result, action="alert")
                         await notify(alert)
-                
+                await asyncio.sleep(1)
+
+            # Process Dexscreener pools (already parsed)
+            for pool in dex_pools:
+                analyzed_tokens.add(pool["token_mint"])
+                result = score_token(pool)
+                if result["will_trade"]:
+                    token_name = pool.get("name", "")
+                    news_safe, news_reason = news_check_token(pool["token_mint"], token_name)
+                    if not news_safe:
+                        await notify(f"🛑 NEWS GUARD blocked {token_name}\n{news_reason}")
+                        continue
+                    alert = format_alert(result, action="buy")
+                    await notify(alert)
+                    await on_buy_signal(pool["token_mint"], pool, result["captured_state"])
+                else:
+                    if result["score"] > 40:
+                        alert = format_alert(result, action="alert")
+                        await notify(alert)
                 await asyncio.sleep(1)
 
         except Exception as e:

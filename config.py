@@ -31,6 +31,7 @@ REDDIT_SUBREDDITS    = os.getenv("REDDIT_SUBREDDITS", "solana,cryptomoonshots,wa
 # ── SOLANA ────────────────────────────────────────────────────────────────────
 SOLANA_PRIVATE_KEY   = os.getenv("SOLANA_PRIVATE_KEY", "")
 RPC_URL              = os.getenv("RPC_URL", "https://api.mainnet-beta.solana.com")
+RPC_WS_URL           = os.getenv("RPC_WS_URL", RPC_URL.replace("https://", "wss://").replace("http://", "ws://"))
 TRADE_AMOUNT_SOL     = float(os.getenv("TRADE_AMOUNT_SOL", "0.05"))
 SLIPPAGE_BPS         = int(os.getenv("SLIPPAGE_BPS", "500"))
 AUTO_SELL_MULTIPLIER = float(os.getenv("AUTO_SELL_MULTIPLIER", "2"))

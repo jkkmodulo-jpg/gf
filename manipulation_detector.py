@@ -13,7 +13,7 @@ log = logging.getLogger("manipulation")
 SENTIMENT_SPIKE_THRESHOLD   = 0.4    # sentiment rising this fast in 5min = suspicious
 VOLUME_HYPE_MIN_RATIO       = 0.3    # volume must be at least 30% of hype signal
 PRICE_PUMP_THRESHOLD        = 150.0  # % price change in 1hr = already pumped
-MAX_SAFE_TOP_HOLDER_PCT     = 15.0   # top holder above this = manipulation risk
+MAX_SAFE_TOP_HOLDER_PCT     = 25.0  # top holder above this = manipulation risk
 SENTIMENT_WINDOW_SEC        = 300    # 5 minute window for velocity checks
 
 # ── HISTORY TRACKING ─────────────────────────────────────────────────────────

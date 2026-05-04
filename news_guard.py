@@ -17,11 +17,10 @@ FREEZE_DURATION_SEC = 60 * 30             # 30 minutes freeze on bad news
 
 # ── DANGER KEYWORDS ───────────────────────────────────────────────────────────
 DANGER_KEYWORDS = [
-    "rug pull", "rugpull", "rug", "scam", "hack", "hacked", "exploit",
-    "exit scam", "dumped", "honeypot", "fraud", "sec", "lawsuit",
-    "arrested", "shutdown", "banned", "delisted", "investigation",
-    "bankrupt", "insolvent", "warning", "ponzi", "fake", "stolen",
-    "breach", "compromised", "suspicious", "alert", "danger"
+    "rug pull", "rugpull", "exit scam", "honeypot", "hack", "hacked",
+    "exploit", "fraud", "sec enforcement", "lawsuit", "arrested",
+    "shutdown", "delisted", "bankrupt", "insolvent", "ponzi",
+    "stolen funds", "breach", "compromised wallets"
 ]
 
 # ── FREE NEWS FEEDS ───────────────────────────────────────────────────────────
@@ -105,7 +104,7 @@ def check_general_market() -> tuple[bool, str]:
     headlines = _fetch_recent_headlines()
     danger_count = sum(1 for h in headlines if _contains_danger(h))
 
-    if danger_count >= 5:
+    if danger_count >= 8:
         reason = f"Market-wide danger detected ({danger_count} alerts in news)"
         log.warning(f"NEWS GUARD: {reason}")
         return False, reason
