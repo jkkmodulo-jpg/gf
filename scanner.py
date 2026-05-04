@@ -374,13 +374,9 @@ async def run_scanner(on_buy_signal: Callable, notify: Callable):
             if should_validate():
                 validate_and_fix()
 
-            # Check general market news before scanning
-            market_safe, market_reason = check_general_market()
-            if not market_safe:
-                log.warning(f"NEWS GUARD: Market-wide risk — {market_reason}. Pausing scan.")
-                await notify(f"⚠️ NEWS GUARD: {market_reason}\nScanning paused 5min.")
-                await asyncio.sleep(300)
-                continue
+            # NOTE: General market news check disabled.
+            # Crypto RSS feeds permanently contain danger keywords (hack, exploit, rug)
+            # causing false positives every scan cycle. Per-token check still active.
 
             gecko_pools = fetch_new_solana_pools() + fetch_trending_solana_pools()
             seen = set()
